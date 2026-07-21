@@ -121,7 +121,7 @@
       width: 65px; 
       height: 65px; 
       margin: 4px auto; 
-      border-radius: 50%; /* Profil bulat */
+      border-radius: 50%;
       border: 2px solid rgba(255, 255, 255, 0.5);
       object-fit: cover; 
       box-shadow: 0 4px 10px rgba(0,0,0,0.3);
@@ -175,9 +175,9 @@
   </div>
 
   <script>
-    // PAUTAN CSV PUBLISHED GOOGLE SHEET ANDA
-    const GOOGLE_SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSD_t703GZotl734znImagqHzMEK_a9VaRTgq6kiLdlHz40MQaKcsWklFLZRIqY32brIFMHsWH4rSV3/pub?output=csv'; 
-    // Nota: Gantikan URL di atas jika anda buat 'Publish to web' semula untuk CSV!
+    // ID GOOGLE SHEET ANDA
+    const SPREADSHEET_ID = '1_MHm_ub62mz_dOvxFXg7nLE6PU07gED7dZx9bmbNVUw';
+    const GOOGLE_SHEET_CSV_URL = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv`;
 
     let camera, scene, renderer, controls;
     const objects = [];
@@ -196,77 +196,80 @@
 
       scene = new THREE.Scene();
 
-      // BACA DATA DARI GOOGLE SHEET CSV
+      // FUNGSI UTAMA RENDER KAD
+      function renderData(dataRows) {
+        if (!dataRows || dataRows.length === 0) return;
+
+        dataRows.forEach((cols, i) => {
+          if (!cols || cols.length < 2) return;
+
+          // Indeks lajur: 0: Name | 1: Photo | 2: Age | 3: Country | 4: Interest | 5: Net Worth
+          const name = cols[0] ? cols[0].trim() : 'User';
+          const image = cols[1] ? cols[1].trim() : 'https://via.placeholder.com/80';
+          const country = cols[3] ? cols[3].trim() : 'MY';
+          
+          const rawNetWorth = cols[5] ? cols[5].toString().replace(/[\$, "]/g, '') : '0';
+          const netWorth = parseFloat(rawNetWorth) || 0;
+
+          const element = document.createElement('div');
+          element.className = 'element';
+
+          // PEWARNAAN GLASSMORPHISM NET WORTH
+          if (netWorth < 100000) {
+            element.style.backgroundColor = 'rgba(225, 29, 72, 0.45)'; // Red Glass
+            element.style.boxShadow = '0 0 15px rgba(225, 29, 72, 0.3)';
+          } else if (netWorth <= 200000) {
+            element.style.backgroundColor = 'rgba(245, 158, 11, 0.45)'; // Orange Glass
+            element.style.boxShadow = '0 0 15px rgba(245, 158, 11, 0.3)';
+          } else {
+            element.style.backgroundColor = 'rgba(16, 185, 129, 0.45)'; // Green Glass
+            element.style.boxShadow = '0 0 15px rgba(16, 185, 129, 0.3)';
+          }
+
+          element.innerHTML = `
+            <div class="top-bar"><span>${country}</span><span>${i + 1}</span></div>
+            <img src="${image}" alt="${name}" onerror="this.src='https://via.placeholder.com/80?text=User'">
+            <div class="name">${name}</div>
+            <div class="details">$${netWorth.toLocaleString()}</div>
+          `;
+
+          const object = new THREE.CSS3DObject(element);
+          object.position.x = Math.random() * 4000 - 2000;
+          object.position.y = Math.random() * 4000 - 2000;
+          object.position.z = Math.random() * 4000 - 2000;
+          scene.add(object);
+          objects.push(object);
+
+          // 1. ARRANGEMENT: TABLE (20 Lajur x 10 Baris)
+          const objectTable = new THREE.Object3D();
+          const col = i % 20;
+          const r = Math.floor(i / 20);
+          objectTable.position.x = (col * 150) - 1425;
+          objectTable.position.y = -(r * 190) + 850;
+          targets.table.push(objectTable);
+        });
+
+        buildStructures();
+        setupRenderer();
+        transform(targets.table, 2000);
+        animate();
+      }
+
+      // AMBIL DATA DARI GOOGLE SHEET (GVIZ ENDPOINT)
       Papa.parse(GOOGLE_SHEET_CSV_URL, {
         download: true,
-        header: false, // Indeks lajur (0, 1, 2...)
+        header: false,
         skipEmptyLines: true,
         complete: function(results) {
-          const rawRows = results.data;
-          if (rawRows.length <= 1) return;
-
-          // Buang baris pertama (Header)
-          const data = rawRows.slice(1);
-          
-          data.forEach((cols, i) => {
-            if (!cols || cols.length < 2) return;
-
-            // Indeks lajur: 0: Name | 1: Photo | 2: Age | 3: Country | 4: Interest | 5: Net Worth
-            const name = cols[0] ? cols[0].trim() : 'Nama';
-            const image = cols[1] ? cols[1].trim() : 'https://via.placeholder.com/80';
-            const country = cols[3] ? cols[3].trim() : 'MY';
-            
-            // Pembersihan nilai Net Worth ($250,000 -> 250000)
-            const rawNetWorth = cols[5] ? cols[5].toString().replace(/[\$, "]/g, '') : '0';
-            const netWorth = parseFloat(rawNetWorth) || 0;
-
-            // ELEMEN HTML TILE KAD
-            const element = document.createElement('div');
-            element.className = 'element';
-
-            // PEWARNAAN GLASSMORPHISM NET WORTH
-            if (netWorth < 100000) {
-              element.style.backgroundColor = 'rgba(225, 29, 72, 0.45)'; // Red Glass
-              element.style.boxShadow = '0 0 15px rgba(225, 29, 72, 0.3), inset 0 0 15px rgba(225, 29, 72, 0.2)';
-            } else if (netWorth <= 200000) {
-              element.style.backgroundColor = 'rgba(245, 158, 11, 0.45)'; // Orange Glass
-              element.style.boxShadow = '0 0 15px rgba(245, 158, 11, 0.3), inset 0 0 15px rgba(245, 158, 11, 0.2)';
-            } else {
-              element.style.backgroundColor = 'rgba(16, 185, 129, 0.45)'; // Green Glass
-              element.style.boxShadow = '0 0 15px rgba(16, 185, 129, 0.3), inset 0 0 15px rgba(16, 185, 129, 0.2)';
-            }
-
-            element.innerHTML = `
-              <div class="top-bar"><span>${country}</span><span>${i + 1}</span></div>
-              <img src="${image}" alt="${name}" onerror="this.src='https://via.placeholder.com/80?text=User'">
-              <div class="name">${name}</div>
-              <div class="details">$${netWorth.toLocaleString()}</div>
-            `;
-
-            // OBJEK CSS3D
-            const object = new THREE.CSS3DObject(element);
-            object.position.x = Math.random() * 4000 - 2000;
-            object.position.y = Math.random() * 4000 - 2000;
-            object.position.z = Math.random() * 4000 - 2000;
-            scene.add(object);
-            objects.push(object);
-
-            // 1. ARRANGEMENT: TABLE (20 Lajur x 10 Baris)
-            const objectTable = new THREE.Object3D();
-            const col = i % 20;
-            const r = Math.floor(i / 20);
-            objectTable.position.x = (col * 150) - 1425;
-            objectTable.position.y = -(r * 190) + 850;
-            targets.table.push(objectTable);
-          });
-
-          buildStructures();
-          setupRenderer();
-          transform(targets.table, 2000);
-          animate();
+          if (results.data && results.data.length > 1) {
+            // Abaikan baris pertama jika ia header
+            const rows = results.data;
+            const hasHeader = isNaN(parseFloat(rows[0][5]));
+            renderData(hasHeader ? rows.slice(1) : rows);
+          }
         },
         error: function(err) {
-          console.error("Gagal membaca Google Sheet CSV:", err);
+          console.error("Gagal baca Google Sheet:", err);
         }
       });
     }
