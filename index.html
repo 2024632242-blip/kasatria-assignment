@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="UTF-8">
+  <title>Kasatria 3D Periodic Table Assignment</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Library Three.js, CSS3DRenderer, Tween & PapaParse -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TrackballControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/renderers/CSS3DRenderer.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+  
+  <!-- SDK Google Login -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background-color: #000; color: #fff; font-family: Arial, sans-serif; overflow: hidden; }
+
+    /* 1. SKRIN LOGIN GOOGLE */
+    #login-screen {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background-color: #121212;
+    }
+    #login-card {
+      background: #1e1e1e;
+      padding: 40px;
+      border-radius: 8px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      text-align: center;
+    }
+    #login-card h2 { margin-top: 0; color: #fff; }
+    #login-card hr { border: 0; height: 1px; background: #333; margin: 20px 0; }
+
+    /* 2. SKRIN VISUALISASI 3D */
+    #app { display: none; width: 100vw; height: 100vh; }
+    #container { width: 100%; height: 100%; }
+
+    /* MENU BUTANG DI BAWAH */
+    #menu {
+      position: absolute;
+      bottom: 20px;
+      width: 100%;
+      text-align: center;
+      z-index: 10;
+    }
+    button {
+      color: rgba(127,255,255,0.75);
+      background: rgba(0,127,127,0.1);
+      outline: 1px solid rgba(127,255,255,0.75);
+      border: 0px;
+      padding: 10px 20px;
+      cursor: pointer;
+      margin: 0 5px;
+      font-weight: bold;
+      border-radius: 2px;
+      transition: all 0.3s ease;
+    }
+    button:hover { background-color: rgba(0,255,255,0.5); color: #fff; }
+
+    /* STRUKTUR KAD TILE */
+    .element {
+      width: 120px;
+      height: 160px;
+      box-shadow: 0px 0px 12px rgba(0,255,255,0.5);
+      border: 1px solid rgba(127,255,255,0.25);
+      font-family: Helvetica, sans-serif;
+      text-align: center;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 6px;
+      border-radius: 4px;
+    }
+    .element:hover {
+      box-shadow: 0px 0px 20px rgba(255,255,255,0.75);
+      border: 1px solid rgba(255,255,255,0.75);
+    }
+    .element .top-bar { display: flex; justify-content: space-between; font-size: 10px; font-weight: bold; }
+    .element img { width: 65px; height: 65px; margin: 2px auto; border-radius: 4px; object-fit: cover; }
+    .element .name { font-size: 10px; font-weight: bold; color: #fff; text-shadow: 0 1px 2px #000; word-break: break-word; }
+    .element .details { font-size: 9px; opacity: 0.85; color: #eee; text-shadow: 0 1px 2px #000; }
+  </style>
+</head>
+<body>
+
+  <!-- SKRIN LOGIN -->
+  <div id="login-screen">
+    <div id="login-card">
+      <h2>Welcome Back</h2>
+      <hr>
+      <div id="g_id_onload"
+           data-client_id="984195204022-03od1u3bmpioam9km1bfmkam0ub9pasq.apps.googleusercontent.com"
+           data-callback="handleCredentialResponse">
+      </div>
+      <div class="g_id_signin" data-type="standard"></div>
+    </div>
+  </div>
+
+  <!-- SKRIN 3D -->
+  <div id="app">
+    <div id="container"></div>
+    <div id="menu">
+      <button id="table">TABLE</button>
+      <button id="sphere">SPHERE</button>
+      <button id="helix">HELIX</button>
+      <button id="grid">GRID</button>
+    </div>
+  </div>
+
+  <script>
+    // PAUTAN CSV PUBLISH GOOGLE SHEET ANDA
+    const GOOGLE_SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSD_t703GZotl734znImagqHzMEK_a9VaRTgq6kiLdlHz40MQaKcsWklFLZRIqY32brIFMHsWH4rSV3/pub?output=csv';
+
+    let camera, scene, renderer, controls;
+    const objects = [];
+    const targets = { table: [], sphere: [], helix: [], grid: [] };
+
+    // BERJAYA LOG IN GOOGLE
+    function handleCredentialResponse(response) {
+      document.getElementById('login-screen').style.display = 'none';
+      document.getElementById('app').style.display = 'block';
+      init3D();
+    }
+
+    function init3D() {
+      camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 1, 10000);
+      camera.position.z = 3000;
+
+      scene = new THREE.Scene();
+
+      // BACA DATA DARI GOOGLE SHEET CSV
+      Papa.parse(GOOGLE_SHEET_CSV_URL, {
+        download: true,
+        header: false, // Guna nombor indeks lajur (0, 1, 2...)
+        skipEmptyLines: true,
+        complete: function(results) {
+          const rawRows = results.data;
+          if (rawRows.length <= 1) return;
+
+          // Buang baris pertama (Tajuk Lajur / Header)
+          const data = rawRows.slice(1);
+          
+          data.forEach((cols, i) => {
+            if (!cols || cols.length < 2) return;
+
+            // Indeks lajur berdasarkan Google Sheet Kasatria:
+            // 0: Name | 1: Photo | 2: Age | 3: Country | 4: Interest | 5: Net Worth
+            const name = cols[0] ? cols[0].trim() : 'Nama';
+            const image = cols[1] ? cols[1].trim() : 'https://via.placeholder.com/80';
+            const country = cols[3] ? cols[3].trim() : 'MY';
+            
+            // Pembersihan nilai Net Worth
+            const rawNetWorth = cols[5] ? cols[5].toString().replace(/[\$, "]/g, '') : '0';
+            const netWorth = parseFloat(rawNetWorth) || 0;
+
+            // ELEMEN HTML TILE KAD
+            const element = document.createElement('div');
+            element.className = 'element';
+
+            // ATURAN WARNA LOGIK NET WORTH (Persyaratan Kasatria):
+            // Red <$100K | Orange $100K-$200K | Green >$200K
+            if (netWorth < 100000) {
+              element.style.backgroundColor = 'rgba(128, 0, 32, 0.85)'; // Merah
+            } else if (netWorth <= 200000) {
+              element.style.backgroundColor = 'rgba(212, 172, 13, 0.85)'; // Oren / Kuning
+            } else {
+              element.style.backgroundColor = 'rgba(39, 174, 96, 0.85)';  // Hijau
+            }
+
+            element.innerHTML = `
+              <div class="top-bar"><span>${country}</span><span>${i + 1}</span></div>
+              <img src="${image}" alt="${name}" onerror="this.src='https://via.placeholder.com/80?text=User'">
+              <div class="name">${name}</div>
+              <div class="details">$${netWorth.toLocaleString()}</div>
+            `;
+
+            // OBJEK CSS3D
+            const object = new THREE.CSS3DObject(element);
+            object.position.x = Math.random() * 4000 - 2000;
+            object.position.y = Math.random() * 4000 - 2000;
+            object.position.z = Math.random() * 4000 - 2000;
+            scene.add(object);
+            objects.push(object);
+
+            // 1. ARRANGEMENT: TABLE (20 Lajur x 10 Baris)
+            const objectTable = new THREE.Object3D();
+            const col = i % 20;
+            const r = Math.floor(i / 20);
+            objectTable.position.x = (col * 140) - 1330;
+            objectTable.position.y = -(r * 180) + 800;
+            targets.table.push(objectTable);
+          });
+
+          buildStructures();
+          setupRenderer();
+          transform(targets.table, 2000);
+          animate();
+        },
+        error: function(err) {
+          console.error("Gagal membaca Google Sheet CSV:", err);
+        }
+      });
+    }
+
+    function buildStructures() {
+      const vector = new THREE.Vector3();
+
+      // 2. ARRANGEMENT: SPHERE
+      for (let i = 0, l = objects.length; i < l; i++) {
+        const phi = Math.acos(-1 + (2 * i) / l);
+        const theta = Math.sqrt(l * Math.PI) * phi;
+        const objectSphere = new THREE.Object3D();
+        objectSphere.position.setFromSphericalCoords(800, phi, theta);
+        vector.copy(objectSphere.position).multiplyScalar(2);
+        objectSphere.lookAt(vector);
+        targets.sphere.push(objectSphere);
+      }
+
+      // 3. ARRANGEMENT: DOUBLE HELIX
+      for (let i = 0, l = objects.length; i < l; i++) {
+        const strandOffset = (i % 2 === 0) ? 0 : Math.PI;
+        const theta = (i * 0.175) + strandOffset;
+        const y = -(i * 8) + 450;
+        const objectHelix = new THREE.Object3D();
+        objectHelix.position.setFromCylindricalCoords(900, theta, y);
+        vector.x = objectHelix.position.x * 2;
+        vector.y = objectHelix.position.y;
+        vector.z = objectHelix.position.z * 2;
+        objectHelix.lookAt(vector);
+        targets.helix.push(objectHelix);
+      }
+
+      // 4. ARRANGEMENT: GRID (5x4x10)
+      for (let i = 0, l = objects.length; i < l; i++) {
+        const objectGrid = new THREE.Object3D();
+        const x = (i % 5);
+        const y = Math.floor((i / 5) % 4);
+        const z = Math.floor(i / (5 * 4));
+        objectGrid.position.x = (x * 300) - 600;
+        objectGrid.position.y = -(y * 300) + 450;
+        objectGrid.position.z = (z * 400) - 1800;
+        targets.grid.push(objectGrid);
+      }
+    }
+
+    function setupRenderer() {
+      renderer = new THREE.CSS3DRenderer();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.getElementById('container').appendChild(renderer.domElement);
+
+      controls = new THREE.TrackballControls(camera, renderer.domElement);
+      controls.minDistance = 500;
+      controls.maxDistance = 6000;
+      controls.addEventListener('change', render);
+
+      // EVENT LISTENERS BUTANG
+      document.getElementById('table').addEventListener('click', () => transform(targets.table, 2000));
+      document.getElementById('sphere').addEventListener('click', () => transform(targets.sphere, 2000));
+      document.getElementById('helix').addEventListener('click', () => transform(targets.helix, 2000));
+      document.getElementById('grid').addEventListener('click', () => transform(targets.grid, 2000));
+
+      window.addEventListener('resize', onWindowResize);
+    }
+
+    function transform(target, duration) {
+      TWEEN.removeAll();
+      for (let i = 0; i < objects.length; i++) {
+        const object = objects[i];
+        const targetObject = target[i];
+
+        if (!targetObject) continue;
+
+        new TWEEN.Tween(object.position)
+          .to({ x: targetObject.position.x, y: targetObject.position.y, z: targetObject.position.z }, Math.random() * duration + duration)
+          .easing(TWEEN.Easing.Exponential.InOut)
+          .start();
+
+        new TWEEN.Tween(object.rotation)
+          .to({ x: targetObject.rotation.x, y: targetObject.rotation.y, z: targetObject.rotation.z }, Math.random() * duration + duration)
+          .easing(TWEEN.Easing.Exponential.InOut)
+          .start();
+      }
+
+      new TWEEN.Tween(this)
+        .to({}, duration * 2)
+        .onUpdate(render)
+        .start();
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      render();
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      TWEEN.update();
+      controls.update();
+    }
+
+    function render() {
+      renderer.render(scene, camera);
+    }
+  </script>
+</body>
+</html>
